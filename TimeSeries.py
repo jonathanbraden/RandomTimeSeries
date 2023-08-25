@@ -5,12 +5,45 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+class TimeSeries:
+
+    def __init__(self, cache_size=10000):
+        self.cache = None
+        self.max_cache = cache_size
+        self.noise = np.random.normal
+
+    def sample(self, num_samples, num_steps):
+        self.cache = self.noise( size=(num_samples, num_steps) )
+        return self.cache
+
+    # Improve this to only do the extra number
+    def sample_mean(self, *, min_samples=10000):
+        steps = 64
+        if self.cache is None or self.cache.shape[0] < min_samples:
+            self.cache = self.sample( min_samples, steps ) 
+        
+        return np.mean(self.cache, axis=0)
+
+    def sample_variance(self, *, min_samples=10000):
+        steps = 64
+        if self.cache is None or self.cache.shape[0] < min_samples:
+            self.cache = self.sample( min_samples, steps )
+            
+        return np.var(self.cache, axis=0)
+
+    def clear_cache(self):
+        self.cache = None
+
+    # Need to do a time average over sample_mean
+    def mean(self):
+        return
+        
 # To Do:
 #   - Add option to start time-streams from some mean value, or sampled from some i.i.d. distribution
 #   - Add some more convenience routines for computing lags, etc.
 #   - Add some caching of previously generated time series
 #   - Add option to specify the i.i.d. distribution samples are drawn from
-class TimeSeries_AR:
+class TimeSeries_AR(TimeSeries):
     """
     A class to generate time-stream from AR(p) models.
     """
@@ -25,9 +58,9 @@ class TimeSeries_AR:
           ar_coeffs : The coefficients w_l above
           phi0      : The coefficeint phi0 above
         """
+        super().__init__()
+        
         # Add some data checks here
-        self.noise = np.random.normal
-
         self.ar_coeffs = np.array(ar_coeffs)
         self.ar_ord = self.ar_coeffs.size
         self.phi0 = phi0
@@ -36,7 +69,9 @@ class TimeSeries_AR:
 
     # Add an option to either start the series with some mean value
     # or else drawing from a distribution
-    def sample(self,num_samples, num_steps, *, burn_in=0):
+    def sample(self, num_samples : int, num_steps : int, *,
+               burn_in : int = 0,
+               cache = False):
         p_ = self.ar_ord
         
         noise = self.noise( size=(num_samples, num_steps+burn_in) )
@@ -53,6 +88,9 @@ class TimeSeries_AR:
                                np.sum(series[:,i:i+p_]*self.ar_coeffs,axis=-1)
                                + noise[:,i]
                                )
+
+        if cache:
+            self.cache = series[:self.max_cache,p_+burn_in:]
             
         return series[:,p_+burn_in:] 
 
@@ -67,9 +105,11 @@ class TimeSeries_AR:
         return np.nan
     
     
-class TimeSeries_MA:
+class TimeSeries_MA(TimeSeries):
 
     def __init__(self, ma_coeffs, mu):
+        super().__init__()
+        
         self.ma_coeffs = np.array(ma_coeffs)
         self.mu = mu
         self.ma_ord = ma_coeffs.size
@@ -89,10 +129,10 @@ class TimeSeries_MA:
     def mean(self):
         return self.mu
 
-class TimeSeries_ARMA:
+class TimeSeries_ARMA(TimeSeries):
 
     def __init__(self, ma_coeffs, ar_coeffs, phi0: float):
-        self.noise = np.random.normal
+        super().__init__()
         
         self.ma_coeffs = np.array(ma_coeffs)
         self.ar_coeffs = np.array(ar_coeffs)
@@ -103,23 +143,28 @@ class TimeSeries_ARMA:
 
         return
 
-    def sample(self, num_samples: int, num_steps: int, *, burn_in : int = 0):
+    def sample(self, num_samples: int,
+               num_steps: int, *,
+               burn_in : int = 0,
+               cache = False):
         p_, q_ = self.ar_ord, self.ma_ord
-        pad = max(p_,q_)
         
         noise = self.noise( size=(num_samples, num_steps+q_+burn_in) )
-        series = np.zeros( (num_samples, num_steps+pad+burn_in) )
+        series = np.zeros( (num_samples, num_steps+p_+burn_in) )
 
-        series[:,:pad] = self.mean()  # Adjust this
+        series[:,:p_] = self.mean()  # Adjust this
         
         for i in range(num_steps+burn_in):
-            series[:,i+pad] = ( self.phi0 +
-                                np.sum(self.ar_coeffs*series[:,i+pad-p_:i+pad],axis=-1) +
-                                np.sum(self.ma_coeffs*noise[:,i+pad-q_:i+pad],axis=-1) +
+            series[:,i+p_] = ( self.phi0 +
+                                np.sum(self.ar_coeffs*series[:,i:i+p_],axis=-1) +
+                                np.sum(self.ma_coeffs*noise[:,i:i+q_],axis=-1) +
                                 noise[:,i]
                                 )
-        
-        return series[:,pad+burn_in:]
+
+        if cache:
+            self.cache = series[:self.max_cache,p_+burn_in:]
+            
+        return series[:,p_+burn_in:]
 
     def mean(self):
         return self.phi0 / (1.-np.sum(self.ar_coeffs))
