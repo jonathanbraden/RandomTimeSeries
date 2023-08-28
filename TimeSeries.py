@@ -1,6 +1,7 @@
 # To Do Here:
 #  - Add a "streaming" version of the time-series that simply returns the
 #    next step (via a generator) rather than the whole time series
+#  - Add option to seed the Brownian motions (so I can do strong convergence comparisons)
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,6 +13,9 @@ class TimeSeries:
         self.max_cache = cache_size
         self.noise = np.random.normal
 
+    def __str__(self):
+        return "TimeSeries base class"
+        
     def sample(self, num_samples, num_steps):
         self.cache = self.noise( size=(num_samples, num_steps) )
         return self.cache
@@ -33,17 +37,13 @@ class TimeSeries:
 
     def clear_cache(self):
         self.cache = None
-
-    # Need to do a time average over sample_mean
-    def mean(self):
-        return
         
 # To Do:
 #   - Add option to start time-streams from some mean value, or sampled from some i.i.d. distribution
 #   - Add some more convenience routines for computing lags, etc.
 #   - Add some caching of previously generated time series
 #   - Add option to specify the i.i.d. distribution samples are drawn from
-class TimeSeries_AR(TimeSeries):
+class AR_Model(TimeSeries):
     """
     A class to generate time-stream from AR(p) models.
     """
@@ -65,7 +65,7 @@ class TimeSeries_AR(TimeSeries):
         self.ar_ord = self.ar_coeffs.size
         self.phi0 = phi0
 
-        self.is_stationary = np.sum(ar_coeffs) < 1. # Check this
+        self.is_stationary = np.sum(ar_coeffs) < 1. # Fix this condition
 
     # Add an option to either start the series with some mean value
     # or else drawing from a distribution
@@ -105,7 +105,7 @@ class TimeSeries_AR(TimeSeries):
         return np.nan
     
     
-class TimeSeries_MA(TimeSeries):
+class MA_Model(TimeSeries):
 
     def __init__(self, ma_coeffs, mu):
         super().__init__()
@@ -129,7 +129,7 @@ class TimeSeries_MA(TimeSeries):
     def mean(self):
         return self.mu
 
-class TimeSeries_ARMA(TimeSeries):
+class ARMA_Model(TimeSeries):
 
     def __init__(self, ma_coeffs, ar_coeffs, phi0: float):
         super().__init__()
@@ -232,7 +232,7 @@ class TimeSeries_Brownian(TimeSeries):
         pdf = np.exp(-0.5*(xv-m)**2/s**2) / np.sqrt(2.*np.pi*s**2)
         return (xv, pdf)
     
-class TimeSeries_GeometricBrownian(TimeSeries):
+class GeometricBrownianMotion(TimeSeries):
     def __init__(self, mu:float, sigma: float):
         super().__init__()
 
@@ -241,20 +241,43 @@ class TimeSeries_GeometricBrownian(TimeSeries):
         self.sigma = sigma
         return
 
-    def __init__(self):
-        return "Geometric Brownian Motion"
+    def __str__(self):
+        return "Geometric Brownian Motion:\ndX_t = \mu*X_t*dt + s*X_t*dW_t"
     
     def sample(self, num_samples: int, num_steps: int, dt: float, *,
                method='exact'):
         
-        series = np.sqrt(dt)*self.sigma*self.noise( size=(num_samples, num_steps+1) )
-        series[:,0] = 0.
-        series = ( dt*(self.mu-0.5*self.sigma**2)*np.arange(num_steps+1)
-                   + np.cumsum(series, axis=-1)
-                  )
-        return np.exp(series)
+        if method == 'exact':
+            series = np.sqrt(dt)*self.sigma*self.noise( size=(num_samples, num_steps+1) )
+            series[:,0] = 0.
+            series = ( dt*(self.mu-0.5*self.sigma**2)*np.arange(num_steps+1)
+                       + np.cumsum(series, axis=-1)
+                      )
+            series = np.exp(series)
 
-    # Debug this
+        elif method == 'euler':
+            noise = np.sqrt(dt)*self.sigma*self.noise( size=(num_samples, num_steps) )
+            series = np.zeros( (num_samples, num_steps+1) )
+            series[:,0] = 1.
+            for i in range(num_steps):
+                series[:,i+1] = (   series[:,i]
+                                  + dt*self.mu*series[:,i]
+                                  + series[:,i]*noise[:,i]
+                                )
+
+        elif method == 'milstein':
+            noise = np.sqrt(dt)*self.noise( size=(num_samples, num_steps) )
+            series = np.ones( (num_samples, num_steps+1) )
+
+            for i in range(num_steps):
+                series[:,i+1] = ( series[:,i]
+                                  + dt*self.mu*series[:,i]
+                                  + series[:,i]*self.sigma*noise[:,i]
+                                  + 0.5*self.sigma**2*series[:,i]*(noise[:,i]**2-dt)
+                                 )
+                
+        return series
+
     def mean(self, time: float):
         print("Warning, not implemented yet")
         return np.exp(self.mu*time)
@@ -262,7 +285,7 @@ class TimeSeries_GeometricBrownian(TimeSeries):
     # Debug this expression
     def std(self, time: float):
         print("Warning, not implemented yet")
-        return self.mean(time)
+        return np.exp(2.*self.mu*time)*(np.exp(self.sigma**2*time)-1.)
 
     def distribution(self, method='exact'):
         # Add some assertions on method
@@ -274,12 +297,12 @@ class TimeSeries_GeometricBrownian(TimeSeries):
         
         return
 
-class TimeSeries_FractionalBrownian(TimeSeries):
+class FractionalBrownianMotion(TimeSeries):
 
     def __init__(self):
         return
     
-class TimeSeries_BrownianBridge(TimeSeries):
+class BrownianBridge(TimeSeries):
     def __init__(self, mu: float, sigma: float):
         super().__init__()
 
@@ -356,7 +379,33 @@ class TimeSeries_OE(TimeSeries):
                            + noise[:,i]
                              )
         return series
-    
+
+class Vasicek(TimeSeries):
+
+    def __init__(self, mu, theta, sigma):
+        super().__init__()
+
+        self.mu = mu
+        self.theta = theta
+        self.sigma = sigma
+        return
+
+    def __str__(self):
+        return r"Vasicek Model: dX_t = \theta(\mu - X_t)dt + \sigma dW_t"
+
+    def sample(self, num_samples: int, num_steps: int, dt: float, *,
+               mean: float = None):
+        noise = np.sqrt(dt)*self.sigma*np.random.normal( size=(num_samples, num_steps) )
+        series = np.zeros( (num_samples, num_steps+1) )
+
+        for i in range(num_steps):
+            series[:,i+1] = (  series[:,i]
+                             + dt*self.theta*(self.mu - series[:,i])
+                             + noise[:,i]
+                               )
+
+        return series
+        
 class TimeSeries_CIR(TimeSeries):
 
     def __init__(self, mu, theta, sigma):
@@ -368,7 +417,7 @@ class TimeSeries_CIR(TimeSeries):
         return
 
     def __str__(self):
-        return "Cox-Ingersoll-Ross Model"
+        return r"Cox-Ingersoll-Ross Model: dX_t = A(B-X)dt + s\sqrt{X_t} dW_t"
     
     def sample(self, num_samples: int, num_steps: int, dt: float, *,
                mean: float = None):
@@ -392,5 +441,7 @@ if __name__=="__main__":
     #CIR = TimeSeries_CIR(0.05, 2., 0.2)
     #s = CIR.sample(10000, 500, 0.01)
 
-    GBM = TimeSeries_GeometricBrownian(0.05, 0.2)
+    GBM = GeometricBrownianMotion(0.05, 0.2)
     s = GBM.sample(10000, 500, 0.1)
+    s1 = GBM.sample(10000, 500, 0.1, method='euler')
+    s2 = GBM.sample(10000, 500, 0.1, method='milstein')
