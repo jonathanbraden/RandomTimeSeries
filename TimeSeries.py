@@ -299,6 +299,26 @@ class TimeSeries_BrownianBridge(TimeSeries):
         series = np.cumsum(series,axis=-1) + dt*self.mu*np.arange(num_steps+1)
         series = series - np.expand_dims(series[:,-1],-1)*np.arange(num_steps+1)/num_steps
         return series
+
+class TimeSeries_BrownianMeander(TimeSeries):
+
+    def __init__(self, mu: float, sigma: float):
+
+        self.mu = mu
+        self.sigma = sigma
+        return
+
+    def __str__(self):
+        return "Brownian Meander"
+
+    def sample(self, num_samples: int, num_steps: int, dt: float):
+        # Generate 3 Brownian bridges
+        b1 = 0.
+        b2 = 0.
+        b3 = 0.
+        
+        return np.sqrt( ( + b1)**2 + b2**2 + b3**2)
+        
     
 class TimeSeries_RW(TimeSeries):
 
