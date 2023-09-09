@@ -113,6 +113,7 @@ class MA_Model(TimeSeries):
         self.ma_coeffs = np.array(ma_coeffs)
         self.mu = mu
         self.ma_ord = ma_coeffs.size
+        self.noise_var = 1.
         
         return
 
@@ -129,6 +130,18 @@ class MA_Model(TimeSeries):
     def mean(self):
         return self.mu
 
+    def variance(self):
+        return self.noise_var*(1.+np.sum(ma_coeffs**2))
+
+    def lagged_covariance(self):
+        return
+
+    def lagged_correlation(self):
+        return
+
+    def max_lag(self):
+        return
+    
 class ARMA_Model(TimeSeries):
 
     def __init__(self, ma_coeffs, ar_coeffs, phi0: float):
@@ -199,8 +212,23 @@ class TimeSeries_GARCH(TimeSeries):
 
         return noise[:,ord+burn_in:]
 
-class TimeSeries_Brownian(TimeSeries):
+class NoiseSeries:
+    r"""
+    Base class to generate noise series.
+    """
+    
+    def __init__(self):
+        return
 
+    def __str__(self):
+        return "Base class to generate Guassian noise"
+    
+    
+class BrownianMotion(TimeSeries):
+    r"""
+    A class to generate generalised Brownian motions 
+    """
+    
     def __init__(self, mu: float, sigma: float):
         super().__init__()
 
@@ -210,21 +238,33 @@ class TimeSeries_Brownian(TimeSeries):
         return
 
     def __str__(self):
-        return "Generalised Brownian Motion"
+        return "Generalised Brownian Motion: dX_t = m dt + s dW_t"
     
     def sample(self, num_samples: int, num_steps: int, dt: float):
+        r"""
+        Compute and return sample Brownian motion paths.
+        """
         series = np.sqrt(dt)*self.sigma*self.noise( size=(num_samples, num_steps+1) )
         series[:,0] = 0.
         series = np.cumsum(series, axis=-1) + self.mu*dt*np.arange(num_steps+1)
         return series
 
     def mean(self, time: float):
+        r"""
+        Return the mean of the Brownian paths at the given time
+        """
         return self.mu*time
 
     def std(self, time: float):
+        r"""
+        Return the standard deviation of the Brownian paths at the given time.
+        """
         return self.sigma*np.sqrt(time)
 
     def distribution(self, time:float):
+        r"""
+        Return the distribution of the Brownian paths at given time
+        """
         s = np.sqrt(time)*self.sigma
         m = time*self.mu
         
@@ -279,13 +319,13 @@ class GeometricBrownianMotion(TimeSeries):
         return series
 
     def mean(self, time: float):
-        print("Warning, not implemented yet")
+        print("GBM mean not fully tested")
         return np.exp(self.mu*time)
 
     # Debug this expression
     def std(self, time: float):
-        print("Warning, not implemented yet")
-        return np.exp(2.*self.mu*time)*(np.exp(self.sigma**2*time)-1.)
+        print("GBM standard deviation not fully tested")
+        return np.exp(self.mu*time)*np.sqrt(np.exp(self.sigma**2*time)-1.)
 
     def distribution(self, method='exact'):
         # Add some assertions on method
@@ -323,7 +363,8 @@ class BrownianBridge(TimeSeries):
         series = series - np.expand_dims(series[:,-1],-1)*np.arange(num_steps+1)/num_steps
         return series
 
-class TimeSeries_BrownianMeander(TimeSeries):
+    
+class BrownianMeander(TimeSeries):
 
     def __init__(self, mu: float, sigma: float):
 
@@ -441,7 +482,9 @@ if __name__=="__main__":
     #CIR = TimeSeries_CIR(0.05, 2., 0.2)
     #s = CIR.sample(10000, 500, 0.01)
 
+    nt, dt = 500, 0.01
+    tv = dt*np.arange(nt+1)
     GBM = GeometricBrownianMotion(0.05, 0.2)
-    s = GBM.sample(10000, 500, 0.1)
-    s1 = GBM.sample(10000, 500, 0.1, method='euler')
-    s2 = GBM.sample(10000, 500, 0.1, method='milstein')
+    s0 = GBM.sample(10000, nt, dt, method='exact')
+    s1 = GBM.sample(10000, nt, dt, method='euler')
+    s2 = GBM.sample(10000, nt, dt, method='milstein')
